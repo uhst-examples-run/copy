@@ -1,0 +1,346 @@
+<!doctype html>
+
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>UHST Remote Copy/Paste</title>
+    <meta name="description"
+        content="Example showing how to use the User Hosted Secure Transmission framework to send copy/paste messages.">
+    <!-- Include Bootstrap CSS -->
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <!-- Include Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        /* Optional styling for better appearance */
+        .container {
+            margin-top: 20px;
+        }
+
+        #qrCode {
+            margin-bottom: 20px;
+        }
+
+        #shareButtons {
+            margin-bottom: 20px;
+        }
+
+        /* Adjust the layout for side-by-side display on desktop */
+        @media (min-width: 768px) {
+            #host-join-section {
+                display: flex;
+                justify-content: space-between;
+            }
+
+            #host-section,
+            #join-section {
+                width: 48%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <main role="main">
+        <!-- Main container -->
+        <div class="container">
+            <h1 class="display-3">Remote Copy/Paste</h1>
+            <p>This example shows how to use UHST to copy and paste content between devices securely.</p>
+
+            <!-- Host or Join Section -->
+            <div id="host-join-section">
+                <!-- Host Section -->
+                <div id="host-section">
+                    <h2 id="hostIdHeading">Host ID:</h2>
+                    <p>Hosting session. Share the link or QR code with your peer.</p>
+                    <div id="qrCode"></div>
+                    <p id="hostUrl"></p>
+                    <div id="shareButtons">
+                        <button id="shareButton" class="btn btn-link" style="display: none;">
+                            <i class="bi bi-share" style="font-size: 1.5rem;"></i> Share
+                        </button>
+                        <button id="copyLinkButton" class="btn btn-link">
+                            <i class="bi bi-clipboard" style="font-size: 1.5rem;"></i> Copy URL
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Join Section -->
+                <div id="join-section">
+                    <h2>Join a Session</h2>
+                    <form id="joinForm">
+                        <div class="form-group">
+                            <label for="hostIdInput">Enter Host ID:</label>
+                            <input id="hostIdInput" type="text" class="form-control" placeholder="Enter Host ID" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Join</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Connected Section -->
+            <div id="connected-section" style="display: none;">
+                <h2 id="connected-message"></h2>
+                <!-- Host Receive Section -->
+                <div id="host-receive-section" style="display: none;">
+                    <p>Paste something on the peer to copy it here.</p>
+                    <div class="form-group">
+                        <label for="receivedContent">Received Content:</label>
+                        <input type="password" id="receivedContent" class="form-control" readonly>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="revealReceived">
+                            <label class="form-check-label" for="revealReceived">Reveal</label>
+                        </div>
+                    </div>
+                    <button id="copyButton" class="btn btn-success">Copy</button>
+                    <p id="copyStatus"></p>
+                </div>
+
+                <!-- Peer Send Section -->
+                <div id="peer-send-section" style="display: none;">
+                    <p>Paste content in this box to send it to the host.</p>
+                    <div class="form-group">
+                        <label for="contentToSend">Content to Send:</label>
+                        <input type="password" id="contentToSend" class="form-control">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input" id="revealToSend">
+                            <label class="form-check-label" for="revealToSend">Reveal</label>
+                        </div>
+                    </div>
+                    <button id="sendButton" class="btn btn-primary">Send</button>
+                    <p id="sendStatus"></p>
+                </div>
+            </div>
+        </div> <!-- /container -->
+    </main>
+    <!-- Include UHST library -->
+    <script crossorigin src="https://unpkg.com/uhst/uhst.min.js"></script>
+    <!-- Include QRCode.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- Include Bootstrap JS (optional) -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <!-- Your JavaScript code -->
+    <script>
+        // Get UI elements
+        const hostSection = document.getElementById('host-section');
+        const joinSection = document.getElementById('join-section');
+        const hostJoinSection = document.getElementById('host-join-section');
+        const connectedSection = document.getElementById('connected-section');
+        const connectedMessage = document.getElementById('connected-message');
+        const qrCodeElement = document.getElementById('qrCode');
+        const hostUrlElement = document.getElementById('hostUrl');
+        const shareButton = document.getElementById('shareButton');
+        const copyLinkButton = document.getElementById('copyLinkButton');
+        const joinForm = document.getElementById('joinForm');
+        const hostIdInput = document.getElementById('hostIdInput');
+        const hostReceiveSection = document.getElementById('host-receive-section');
+        const peerSendSection = document.getElementById('peer-send-section');
+        const receivedContent = document.getElementById('receivedContent');
+        const revealReceived = document.getElementById('revealReceived');
+        const copyButton = document.getElementById('copyButton');
+        const copyStatus = document.getElementById('copyStatus');
+        const contentToSend = document.getElementById('contentToSend');
+        const revealToSend = document.getElementById('revealToSend');
+        const sendButton = document.getElementById('sendButton');
+        const sendStatus = document.getElementById('sendStatus');
+        const hostIdHeading = document.getElementById('hostIdHeading');
+
+        const uhstApi = new uhst.UHST({ debug: true });
+        let myHostId = null;
+
+        // Function to get URL parameter
+        function getParameterByName(name, url = window.location.href) {
+            name = name.replace(/[\\[]]/g, '\\$&');
+            var regex = new RegExp('[?&]' + name + '(=([^&#]*)|&|#|$)'),
+                results = regex.exec(url);
+            if (!results) return null;
+            if (!results[2]) return '';
+            return decodeURIComponent(results[2].replace(/\+/g, ' '));
+        }
+
+        // Check if there's a hostId in the URL
+        const hostIdFromUrl = getParameterByName('hostId');
+
+        if (hostIdFromUrl) {
+            // Hide host section as we're joining a host
+            hostSection.style.display = 'none';
+            initializeClient(hostIdFromUrl);
+        } else {
+            // Start hosting immediately
+            initializeHost();
+        }
+
+        // Always show the join section until connected
+        joinForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const hostId = hostIdInput.value.trim();
+            if (hostId) {
+                if (myHostId && hostId === myHostId) {
+                    alert("You cannot connect to yourself.");
+                    return;
+                }
+                initializeClient(hostId);
+            }
+        });
+
+        function initializeHost() {
+            const host = uhstApi.host();
+
+            host.on('ready', () => {
+                const hostId = host.hostId;
+                myHostId = hostId;
+
+                // Update heading
+                hostIdHeading.textContent = 'Host ID: ' + hostId;
+
+                const joinUrl = window.location.href.split('?')[0] + '?hostId=' + hostId;
+                hostUrlElement.textContent = joinUrl;
+
+                // Generate QR code
+                new QRCode(qrCodeElement, {
+                    text: joinUrl,
+                    width: 256,
+                    height: 256
+                });
+
+                // Show 'Share' button only if navigator.share is supported
+                if (navigator.share) {
+                    shareButton.style.display = 'inline-block';
+                }
+
+                // Handle share button
+                shareButton.addEventListener('click', () => {
+                    navigator.share({
+                        title: 'Join my UHST session',
+                        url: joinUrl
+                    }).catch((error) => console.log('Error sharing', error));
+                });
+
+                // Handle copy link button
+                copyLinkButton.addEventListener('click', () => {
+                    copyContentToClipboard(joinUrl).then(() => {
+                        alert('URL copied to clipboard');
+                    }).catch((err) => {
+                        alert('Failed to copy URL: ' + err);
+                    });
+                });
+            });
+
+            host.on('connection', (peerConnection) => {
+                connectedMessage.textContent = 'Peer connected.';
+                connectedSection.style.display = 'block';
+                hostReceiveSection.style.display = 'block';
+                hostJoinSection.style.display = 'none';
+
+                peerConnection.on('message', (message) => {
+                    // Received content from peer
+                    receivedContent.value = message;
+                    // Do not auto-copy
+                    copyStatus.textContent = 'Content received.';
+                });
+
+                // Handle reveal checkbox
+                revealReceived.addEventListener('change', () => {
+                    if (revealReceived.checked) {
+                        receivedContent.type = 'text';
+                    } else {
+                        receivedContent.type = 'password';
+                    }
+                });
+
+                // Handle copy button
+                copyButton.addEventListener('click', () => {
+                    copyContentToClipboard(receivedContent.value).then(() => {
+                        copyStatus.textContent = 'Content copied to clipboard.';
+                    }).catch(err => {
+                        copyStatus.textContent = 'Failed to copy content: ' + err;
+                    });
+                });
+            });
+        }
+
+        function initializeClient(hostId) {
+            const client = uhstApi.join(hostId);
+
+            client.on('open', () => {
+                connectedMessage.textContent = 'Connected to host ' + hostId + '.';
+                connectedSection.style.display = 'block';
+                peerSendSection.style.display = 'block';
+                hostJoinSection.style.display = 'none';
+
+                // Handle reveal checkbox
+                revealToSend.addEventListener('change', () => {
+                    if (revealToSend.checked) {
+                        contentToSend.type = 'text';
+                    } else {
+                        contentToSend.type = 'password';
+                    }
+                });
+
+                // Handle send button
+                sendButton.addEventListener('click', () => {
+                    const content = contentToSend.value;
+                    if (content) {
+                        client.send(content);
+                        sendStatus.textContent = 'Content sent.';
+                    } else {
+                        sendStatus.textContent = 'Please enter content to send.';
+                    }
+                });
+            });
+
+            client.on('error', (error) => {
+                connectedMessage.textContent = 'Failed to connect to host.';
+                console.error(error);
+            });
+        }
+
+        function copyContentToClipboard(content) {
+            return new Promise((resolve, reject) => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(content).then(() => {
+                        resolve();
+                    }).catch(err => {
+                        // Try fallback
+                        fallbackCopyTextToClipboard(content).then(resolve).catch(reject);
+                    });
+                } else {
+                    // Use fallback
+                    fallbackCopyTextToClipboard(content).then(resolve).catch(reject);
+                }
+            });
+        }
+
+        function fallbackCopyTextToClipboard(text) {
+            return new Promise((resolve, reject) => {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+
+                // Avoid scrolling to bottom
+                textArea.style.top = "0";
+                textArea.style.left = "0";
+                textArea.style.position = "fixed";
+                textArea.style.opacity = "0";
+
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+
+                try {
+                    const successful = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    if (successful) {
+                        resolve();
+                    } else {
+                        reject('Fallback: Copy command was unsuccessful');
+                    }
+                } catch (err) {
+                    document.body.removeChild(textArea);
+                    reject('Fallback: Oops, unable to copy');
+                }
+            });
+        }
+    </script>
+</body>
+
+</html>
